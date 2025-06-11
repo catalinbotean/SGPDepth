@@ -83,11 +83,13 @@ In `./conf/cvnXt.txt`, you can set `--image_path` to a single image or a directo
 ## Citation
 If you find this project useful for your research, please consider citing:
 ~~~
-@article{lavreniuk2024spidepth,
-      title={SPIdepth: Strengthened Pose Information for Self-supervised Monocular Depth Estimation}, 
-      author={Mykola Lavreniuk},
-      year={2024},
-      journal={arXiv preprint arXiv:2404.12501}
+@InProceedings{Lavreniuk_2025_CVPR,
+    author    = {Lavreniuk, Mykola and Lavreniuk, Alla},
+    title     = {SPIdepth: Strengthened Pose Information for Self-supervised Monocular Depth Estimation},
+    booktitle = {Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR) Workshops},
+    month     = {June},
+    year      = {2025},
+    pages     = {874-884}
 }
 ~~~
 ## Acknowledgement
