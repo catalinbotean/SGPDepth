@@ -504,26 +504,38 @@ class Trainer:
             color = inputs[("color", 0, scale)]
             target = inputs[("color", 0, source_scale)]
 
-            # C2: heteroscedastic pose uncertainty. Each source frame's
-            # reprojection error is down-weighted by exp(-log_var) and a
-            # log_var regulariser stops the uncertainty from collapsing. The
-            # regulariser is pose-level (scale-independent), so add it once.
-            # NOTE: the identity reprojection of the SAME source frame must be
-            # weighted by the SAME exp(-log_var), otherwise the automask min
-            # compares terms in different units, picks the identity branch,
-            # starves depth of gradient and the loss goes negative / NaN.
-            uncertainty_reg = 0.0
+            # C2: pose uncertainty as NORMALIZED relative weighting. Raw
+            # heteroscedastic weighting (exp(-s)*L + w*s) is scale-coupled:
+            # the optimizer drives exp(-s)*L to the constant w, log_var runs
+            # to its bound and the loss goes negative while the depth gradient
+            # is rescaled arbitrarily. Instead the per-frame weights are
+            # normalized to mean 1 across source frames, which removes the
+            # global scale degree of freedom entirely: no regulariser needed,
+            # loss stays in baseline units, and the uncertainty only encodes
+            # the RELATIVE reliability of each source frame. The identity term
+            # of the same frame is weighted identically so the automask min
+            # stays consistent. pose_uncertainty_weight blends between uniform
+            # (0) and fully-normalized (1) weights.
             frame_unc_weights = {}
+            if self.opt.pose_uncertainty:
+                raw_w = {}
+                for frame_id in self.opt.frame_ids[1:]:
+                    if ("pose_logvar", 0, frame_id) in outputs:
+                        log_var = outputs[("pose_logvar", 0, frame_id)]  # (b,1,1,1)
+                        raw_w[frame_id] = torch.exp(-log_var)
+                        if scale == 0:
+                            losses["pose_logvar/{}".format(frame_id)] = log_var.mean()
+                if len(raw_w) > 1:
+                    mean_w = sum(raw_w.values()) / len(raw_w)
+                    alpha = self.opt.pose_uncertainty_weight
+                    for frame_id, w in raw_w.items():
+                        frame_unc_weights[frame_id] = 1 + alpha * (w / (mean_w + 1e-7) - 1)
+
             for frame_id in self.opt.frame_ids[1:]:
                 pred = outputs[("color", frame_id, scale)]
                 rep = self.compute_reprojection_loss(pred, target)
-                if self.opt.pose_uncertainty and ("pose_logvar", 0, frame_id) in outputs:
-                    log_var = outputs[("pose_logvar", 0, frame_id)]  # (b,1,1,1)
-                    frame_unc_weights[frame_id] = torch.exp(-log_var)
+                if frame_id in frame_unc_weights:
                     rep = frame_unc_weights[frame_id] * rep
-                    uncertainty_reg = uncertainty_reg + log_var.mean()
-                    if scale == 0:
-                        losses["pose_logvar/{}".format(frame_id)] = log_var.mean()
                 reprojection_losses.append(rep)
 
             reprojection_losses = torch.cat(reprojection_losses, 1)
@@ -585,8 +597,6 @@ class Trainer:
                     idxs > identity_reprojection_loss.shape[1] - 1).float()
 
             loss += to_optimise.mean()
-            if self.opt.pose_uncertainty and scale == 0:
-                loss += self.opt.pose_uncertainty_weight * uncertainty_reg
             if color.shape[-2:] != disp.shape[-2:]:
                 disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
             mean_disp = disp.mean(2, True).mean(3, True)
