@@ -522,6 +522,8 @@ class Trainer:
                     frame_unc_weights[frame_id] = torch.exp(-log_var)
                     rep = frame_unc_weights[frame_id] * rep
                     uncertainty_reg = uncertainty_reg + log_var.mean()
+                    if scale == 0:
+                        losses["pose_logvar/{}".format(frame_id)] = log_var.mean()
                 reprojection_losses.append(rep)
 
             reprojection_losses = torch.cat(reprojection_losses, 1)
