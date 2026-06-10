@@ -259,6 +259,8 @@ class Trainer:
 
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
+            if self.opt.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(self.parameters_to_train, self.opt.grad_clip)
             self.model_optimizer.step()
 
             duration = time.time() - before_op_time

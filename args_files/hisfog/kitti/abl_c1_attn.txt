@@ -20,3 +20,4 @@
 --max_depth 80.0
 --pose_model_type posecnn_attn
 --pose_enc_name resnet18
+--grad_clip 1.0

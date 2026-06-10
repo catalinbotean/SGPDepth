@@ -281,6 +281,11 @@ class MonodepthOptions:
                                  help="number of iterative pose-refinement steps "
                                       "(1 == single forward pass)",
                                  default=1)
+        self.parser.add_argument("--grad_clip",
+                                 type=float,
+                                 help="max global grad norm (0 == disabled); "
+                                      "recommended >0 when training pose from scratch",
+                                 default=0.0)
 
         # SYSTEM options
         self.parser.add_argument("--no_cuda",

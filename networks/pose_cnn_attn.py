@@ -51,6 +51,9 @@ class PoseCNNAttn(nn.Module):
         self.n_preds = self.n_imgs - 1          # poses predicted per forward
         self.uncertainty = uncertainty
         self.n_iters = max(1, int(n_iters))
+        # Soft bound on log-variance so exp(-log_var) in the loss can never
+        # overflow. log_var in [-B, B] => reprojection weight in [e^-B, e^B].
+        self.logvar_bound = 4.0
 
         self.encoder = timm.create_model(
             enc_name, in_chans=3 * self.n_imgs, features_only=True,
@@ -118,7 +121,12 @@ class PoseCNNAttn(nn.Module):
         translation = pose[..., 3:]
 
         if self.uncertainty:
-            log_var = self.unc_head(gctx).view(b, self.n_preds, 1, 1)
+            raw = self.unc_head(gctx)
+            # tanh soft-clamp: bounded to (-logvar_bound, logvar_bound) with
+            # non-zero gradients everywhere (unlike a hard clamp), which breaks
+            # the exp(-log_var) runaway that otherwise NaNs in the first steps.
+            log_var = self.logvar_bound * torch.tanh(raw / self.logvar_bound)
+            log_var = log_var.view(b, self.n_preds, 1, 1)
             if return_logvar:
                 return axisangle, translation, log_var
             return axisangle, translation, log_var

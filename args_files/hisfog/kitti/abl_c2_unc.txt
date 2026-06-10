@@ -22,3 +22,4 @@
 --pose_enc_name resnet18
 --pose_uncertainty
 --pose_uncertainty_weight 1.0
+--grad_clip 1.0
