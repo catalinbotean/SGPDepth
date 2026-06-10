@@ -95,8 +95,17 @@ class Trainer:
         self.parameters_to_train += list(self.models["depth"].parameters())
 
 
-        self.models["pose"] = networks.PoseCNN(
-            self.num_input_frames if self.opt.pose_model_input == "all" else 2) # default=2
+        pose_n_frames = self.num_input_frames if self.opt.pose_model_input == "all" else 2
+        if self.opt.pose_model_type == "posecnn_attn":
+            # Strengthened pose: attention pooling (+ optional uncertainty / iterative refinement).
+            self.models["pose"] = networks.PoseCNNAttn(
+                pose_n_frames,
+                enc_name=self.opt.pose_enc_name,
+                pretrained=True,
+                uncertainty=self.opt.pose_uncertainty,
+                n_iters=self.opt.pose_iters)
+        else:
+            self.models["pose"] = networks.PoseCNN(pose_n_frames) # default=2
         if self.opt.pretrained_pose :
             print(f'loaded pose from {self.opt.pose_net_path}')
             pose_net_path = os.path.join(self.opt.pose_net_path, 'pose.pth')
@@ -332,10 +341,16 @@ class Trainer:
 
                     if self.opt.pose_model_type == "separate_resnet":
                         pose_inputs = [self.models["pose_encoder"](torch.cat(pose_inputs, 1))]
-                    elif self.opt.pose_model_type == "posecnn":
+                    elif self.opt.pose_model_type in ("posecnn", "posecnn_attn"):
                         pose_inputs = torch.cat(pose_inputs, 1)
 
-                    axisangle, translation = self.models["pose"](pose_inputs)
+                    if self.opt.pose_model_type == "posecnn_attn":
+                        axisangle, translation, log_var = self.models["pose"](
+                            pose_inputs, return_logvar=True)
+                        if log_var is not None:
+                            outputs[("pose_logvar", 0, f_i)] = log_var
+                    else:
+                        axisangle, translation = self.models["pose"](pose_inputs)
                     # print(axisangle.shape)
                     # axisangle:[12, 1, 1, 3]  translation:[12, 1, 1, 3]
                     outputs[("axisangle", 0, f_i)] = axisangle
@@ -348,7 +363,7 @@ class Trainer:
 
         else:
             # Here we input all frames to the pose net (and predict all poses) together
-            if self.opt.pose_model_type in ["separate_resnet", "posecnn"]:
+            if self.opt.pose_model_type in ["separate_resnet", "posecnn", "posecnn_attn"]:
                 pose_inputs = torch.cat(
                     [inputs[("color_aug", i, 0)] for i in self.opt.frame_ids if i != "s"], 1)
 
@@ -358,12 +373,19 @@ class Trainer:
             elif self.opt.pose_model_type == "shared":
                 pose_inputs = [features[i] for i in self.opt.frame_ids if i != "s"]
 
-            axisangle, translation = self.models["pose"](pose_inputs)
+            if self.opt.pose_model_type == "posecnn_attn":
+                axisangle, translation, log_var = self.models["pose"](
+                    pose_inputs, return_logvar=True)
+            else:
+                axisangle, translation = self.models["pose"](pose_inputs)
+                log_var = None
 
             for i, f_i in enumerate(self.opt.frame_ids[1:]):
                 if f_i != "s":
                     outputs[("axisangle", 0, f_i)] = axisangle
                     outputs[("translation", 0, f_i)] = translation
+                    if log_var is not None:
+                        outputs[("pose_logvar", 0, f_i)] = log_var[:, i:i+1]
                     outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
                         axisangle[:, i], translation[:, i])
 
@@ -480,9 +502,19 @@ class Trainer:
             color = inputs[("color", 0, scale)]
             target = inputs[("color", 0, source_scale)]
 
+            # C2: heteroscedastic pose uncertainty. Each source frame's
+            # reprojection error is down-weighted by exp(-log_var) and a
+            # log_var regulariser stops the uncertainty from collapsing. The
+            # regulariser is pose-level (scale-independent), so add it once.
+            uncertainty_reg = 0.0
             for frame_id in self.opt.frame_ids[1:]:
                 pred = outputs[("color", frame_id, scale)]
-                reprojection_losses.append(self.compute_reprojection_loss(pred, target))
+                rep = self.compute_reprojection_loss(pred, target)
+                if self.opt.pose_uncertainty and ("pose_logvar", 0, frame_id) in outputs:
+                    log_var = outputs[("pose_logvar", 0, frame_id)]  # (b,1,1,1)
+                    rep = torch.exp(-log_var) * rep
+                    uncertainty_reg = uncertainty_reg + log_var.mean()
+                reprojection_losses.append(rep)
 
             reprojection_losses = torch.cat(reprojection_losses, 1)
 
@@ -539,6 +571,8 @@ class Trainer:
                     idxs > identity_reprojection_loss.shape[1] - 1).float()
 
             loss += to_optimise.mean()
+            if self.opt.pose_uncertainty and scale == 0:
+                loss += self.opt.pose_uncertainty_weight * uncertainty_reg
             if color.shape[-2:] != disp.shape[-2:]:
                 disp = F.interpolate(disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
             mean_disp = disp.mean(2, True).mean(3, True)

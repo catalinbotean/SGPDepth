@@ -260,7 +260,27 @@ class MonodepthOptions:
                                  help="normal or shared",
                               #    default="separate_resnet",
                                  default="posecnn",
-                                 choices=["posecnn", "pose_flow", "separate_resnet", "shared"])
+                                 choices=["posecnn", "posecnn_attn", "pose_flow", "separate_resnet", "shared"])
+
+        # STRENGTHENED POSE options (attention pooling + uncertainty + iterative refinement)
+        self.parser.add_argument("--pose_enc_name",
+                                 type=str,
+                                 help="timm encoder backbone for the pose network",
+                                 default="resnet18")
+        self.parser.add_argument("--pose_uncertainty",
+                                 help="if set, the pose net emits per-frame log-variance and the "
+                                      "photometric loss is uncertainty-weighted (heteroscedastic)",
+                                 action="store_true")
+        self.parser.add_argument("--pose_uncertainty_weight",
+                                 type=float,
+                                 help="weight on the log-variance regulariser in the "
+                                      "uncertainty-weighted reprojection loss",
+                                 default=1.0)
+        self.parser.add_argument("--pose_iters",
+                                 type=int,
+                                 help="number of iterative pose-refinement steps "
+                                      "(1 == single forward pass)",
+                                 default=1)
 
         # SYSTEM options
         self.parser.add_argument("--no_cuda",

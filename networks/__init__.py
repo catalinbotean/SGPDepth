@@ -1,5 +1,6 @@
 from .pose_decoder import PoseDecoder
 from .pose_cnn import PoseCNN
+from .pose_cnn_attn import PoseCNNAttn
 from .depth_decoder_QTR import Depth_Decoder_QueryTr
 from .resnet_encoder import Resnet50EncoderDecoder, ResnetEncoderDecoder
 from .base_encoder import BaseEncoder
