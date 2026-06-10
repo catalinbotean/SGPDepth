@@ -1,0 +1,29 @@
+--data_path /PATH/TO/kitti_dataset/raw_data/
+--log_dir exps/ft
+--model_name ft_poseattn
+--dataset kitti
+--eval_split eigen
+--backbone convnextv2_huge.fcmae_ft_in22k_in1k_384
+--height 320
+--width 1024
+--log_frequency 1000
+--batch_size 4
+--learning_rate 4e-5
+--num_epochs 20
+--scheduler_step_size 10
+--model_dim 32
+--patch_size 32
+--dim_out 64
+--query_nums 64
+--dec_channels 1024 512 256 128
+--min_depth 0.001
+--max_depth 80.0
+--use_stereo
+--load_pretrained_model
+--load_pt_folder /PATH/TO/hf_weights/kitti/
+--pose_model_type posecnn_attn
+--pose_enc_name resnet18
+--pose_uncertainty
+--pose_uncertainty_weight 0.1
+--pose_iters 3
+--grad_clip 1.0

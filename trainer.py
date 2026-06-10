@@ -508,13 +508,19 @@ class Trainer:
             # reprojection error is down-weighted by exp(-log_var) and a
             # log_var regulariser stops the uncertainty from collapsing. The
             # regulariser is pose-level (scale-independent), so add it once.
+            # NOTE: the identity reprojection of the SAME source frame must be
+            # weighted by the SAME exp(-log_var), otherwise the automask min
+            # compares terms in different units, picks the identity branch,
+            # starves depth of gradient and the loss goes negative / NaN.
             uncertainty_reg = 0.0
+            frame_unc_weights = {}
             for frame_id in self.opt.frame_ids[1:]:
                 pred = outputs[("color", frame_id, scale)]
                 rep = self.compute_reprojection_loss(pred, target)
                 if self.opt.pose_uncertainty and ("pose_logvar", 0, frame_id) in outputs:
                     log_var = outputs[("pose_logvar", 0, frame_id)]  # (b,1,1,1)
-                    rep = torch.exp(-log_var) * rep
+                    frame_unc_weights[frame_id] = torch.exp(-log_var)
+                    rep = frame_unc_weights[frame_id] * rep
                     uncertainty_reg = uncertainty_reg + log_var.mean()
                 reprojection_losses.append(rep)
 
@@ -524,8 +530,12 @@ class Trainer:
                 identity_reprojection_losses = []
                 for frame_id in self.opt.frame_ids[1:]:
                     pred = inputs[("color", frame_id, source_scale)]
-                    identity_reprojection_losses.append(
-                        self.compute_reprojection_loss(pred, target))
+                    idt = self.compute_reprojection_loss(pred, target)
+                    if frame_id in frame_unc_weights:
+                        # keep identity in the same units as the weighted
+                        # reprojection so the automask min stays meaningful
+                        idt = frame_unc_weights[frame_id] * idt
+                    identity_reprojection_losses.append(idt)
 
                 identity_reprojection_losses = torch.cat(identity_reprojection_losses, 1)
 

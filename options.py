@@ -274,8 +274,9 @@ class MonodepthOptions:
         self.parser.add_argument("--pose_uncertainty_weight",
                                  type=float,
                                  help="weight on the log-variance regulariser in the "
-                                      "uncertainty-weighted reprojection loss",
-                                 default=1.0)
+                                      "uncertainty-weighted reprojection loss; should be "
+                                      "on the order of a typical reprojection loss (~0.1)",
+                                 default=0.1)
         self.parser.add_argument("--pose_iters",
                                  type=int,
                                  help="number of iterative pose-refinement steps "
