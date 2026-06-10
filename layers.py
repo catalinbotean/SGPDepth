@@ -5,10 +5,48 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from kornia.geometry.depth import depth_to_3d
 
 device = torch.device(
     "cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+
+def depth_to_3d(depth, camera_matrix, normalize_points=False):
+    """Unproject a depth map to a 3D point cloud in the camera frame.
+
+    Local drop-in replacement for ``kornia.geometry.depth.depth_to_3d`` (the
+    only kornia symbol this project used), avoiding the kornia dependency.
+    Behaviour matches kornia for a pinhole model:
+
+        ray = K^-1 @ [u, v, 1]^T          (z-component == 1)
+        point = depth * ray               (so point.z == depth)
+
+    Args:
+        depth: (B, 1, H, W) depth map.
+        camera_matrix: (B, 3, 3) pinhole intrinsics.
+        normalize_points: if True, the rays are L2-normalised so points lie on
+            the unit sphere; if False (default, as used here) z == depth.
+    Returns:
+        points: (B, 3, H, W) (x, y, z) coordinates in the camera frame.
+    """
+    B, _, H, W = depth.shape
+    dtype, dev = depth.dtype, depth.device
+
+    # Pixel-coordinate grid: u along width, v along height (matches kornia's
+    # create_meshgrid with normalized_coordinates=False).
+    ys = torch.arange(H, device=dev, dtype=dtype)
+    xs = torch.arange(W, device=dev, dtype=dtype)
+    v, u = torch.meshgrid(ys, xs, indexing='ij')          # each (H, W)
+    ones = torch.ones_like(u)
+    pix = torch.stack([u.reshape(-1), v.reshape(-1), ones.reshape(-1)], dim=0)  # (3, H*W)
+    pix = pix.unsqueeze(0).expand(B, 3, H * W)            # (B, 3, H*W)
+
+    inv_K = torch.inverse(camera_matrix)                  # (B, 3, 3)
+    rays = torch.matmul(inv_K, pix)                       # (B, 3, H*W), z == 1
+    if normalize_points:
+        rays = rays / (rays.norm(dim=1, keepdim=True) + 1e-12)
+
+    points = depth.reshape(B, 1, H * W) * rays            # (B, 3, H*W)
+    return points.reshape(B, 3, H, W)
 
 class SSIM(nn.Module):
     """Layer to compute the SSIM loss between a pair of images
