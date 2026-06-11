@@ -27,7 +27,8 @@ def main():
     parser.add_argument("--data_path", required=True)
     parser.add_argument("--split", default="eigen_zhou")
     parser.add_argument("--num_samples", type=int, default=20)
-    parser.add_argument("--png", action="store_true")
+    parser.add_argument("--jpg", action="store_true",
+                        help="use .jpg images (default .png, matching the trainer)")
     args = parser.parse_args()
 
     fpath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -35,7 +36,7 @@ def main():
     filenames = readlines(fpath)[::max(1, len(readlines(fpath)) // args.num_samples)]
     filenames = filenames[:args.num_samples]
 
-    img_ext = '.png' if args.png else '.jpg'
+    img_ext = '.jpg' if args.jpg else '.png'
     dataset = KITTIRAWDataset(args.data_path, filenames, 192, 640, [0, -1, 1], 1,
                               is_train=False, img_ext=img_ext, load_gt_pose=True)
 
