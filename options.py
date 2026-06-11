@@ -270,6 +270,24 @@ class MonodepthOptions:
                                  help="max gradient norm for clipping (disabled if not set)",
                                  default=None)
 
+        # FOUNDATION-MODEL ADAPTATION options (train_adapt.py)
+        self.parser.add_argument("--foundation_model",
+                                 type=str,
+                                 help="HF id of the depth foundation model to adapt",
+                                 default="depth-anything/Depth-Anything-V2-Small-hf")
+        self.parser.add_argument("--lora_rank",
+                                 type=int,
+                                 help="LoRA rank for backbone adaptation; 0 trains only the "
+                                      "global metric scale/shift (rescaling baseline)",
+                                 default=8)
+        self.parser.add_argument("--lora_alpha",
+                                 type=float,
+                                 help="LoRA alpha (defaults to rank)",
+                                 default=None)
+        self.parser.add_argument("--train_head",
+                                 help="also fine-tune the DPT head during adaptation",
+                                 action="store_true")
+
         # SYSTEM options
         self.parser.add_argument("--no_cuda",
                                  help="if set disables CUDA",

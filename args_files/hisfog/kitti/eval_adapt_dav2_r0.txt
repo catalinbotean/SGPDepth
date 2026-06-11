@@ -1,0 +1,9 @@
+--data_path kitti
+--load_weights_folder exps/adapt/adapt_dav2_r0/models/weights_2
+--dataset kitti
+--eval_split eigen
+--height 192
+--width 640
+--min_depth 0.1
+--max_depth 80.0
+--lora_rank 0

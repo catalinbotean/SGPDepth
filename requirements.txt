@@ -17,3 +17,4 @@ torchvision==0.14.1+cu116
 tqdm==4.66.1
 visualizer==0.0.10
 wandb==0.15.10
+transformers>=4.45
