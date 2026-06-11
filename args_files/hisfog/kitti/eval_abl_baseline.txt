@@ -1,4 +1,4 @@
---data_path /PATH/TO/kitti_dataset/raw_data/
+--data_path kitti
 --load_weights_folder exps/poseattn/abl_baseline/models/weights_24
 --dataset kitti
 --eval_split eigen
