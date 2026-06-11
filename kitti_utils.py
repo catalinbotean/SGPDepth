@@ -38,6 +38,85 @@ def read_calib_file(path):
     return data
 
 
+def rotx(t):
+    """Rotation about the x-axis"""
+    c = np.cos(t)
+    s = np.sin(t)
+    return np.array([[1, 0, 0],
+                     [0, c, -s],
+                     [0, s, c]])
+
+
+def roty(t):
+    """Rotation about the y-axis"""
+    c = np.cos(t)
+    s = np.sin(t)
+    return np.array([[c, 0, s],
+                     [0, 1, 0],
+                     [-s, 0, c]])
+
+
+def rotz(t):
+    """Rotation about the z-axis"""
+    c = np.cos(t)
+    s = np.sin(t)
+    return np.array([[c, -s, 0],
+                     [s, c, 0],
+                     [0, 0, 1]])
+
+
+def transform_from_rot_trans(R, t):
+    """Homogeneous transformation matrix from rotation matrix and translation vector"""
+    T = np.eye(4)
+    T[:3, :3] = R.reshape(3, 3)
+    T[:3, 3] = t.reshape(3)
+    return T
+
+
+def read_oxts_packet(oxts_path):
+    """Read one KITTI raw oxts frame (lat lon alt roll pitch yaw ...)"""
+    with open(oxts_path, 'r') as f:
+        return np.array(list(map(float, f.readline().split())))
+
+
+def pose_from_oxts_packet(packet, scale):
+    """GPS/IMU pose T_w_imu from an oxts packet, via the mercator projection
+    used by the KITTI devkit / pykitti. `scale` must be shared across the
+    frames being compared so relative poses are consistent.
+    """
+    er = 6378137.  # earth radius (approx.) in meters
+    lat, lon, alt, roll, pitch, yaw = packet[:6]
+
+    tx = scale * lon * np.pi * er / 180.
+    ty = scale * er * np.log(np.tan((90. + lat) * np.pi / 360.))
+    tz = alt
+    t = np.array([tx, ty, tz])
+
+    R = rotz(yaw).dot(roty(pitch)).dot(rotx(roll))
+    return transform_from_rot_trans(R, t)
+
+
+def load_imu2cam_rect(calib_dir, cam=2):
+    """T mapping IMU coordinates to the rectified camera `cam` frame:
+    imu -> velo -> cam0 -> rectified cam0 -> rectified cam<cam>
+    """
+    imu2velo = read_calib_file(os.path.join(calib_dir, 'calib_imu_to_velo.txt'))
+    velo2cam = read_calib_file(os.path.join(calib_dir, 'calib_velo_to_cam.txt'))
+    cam2cam = read_calib_file(os.path.join(calib_dir, 'calib_cam_to_cam.txt'))
+
+    T_velo_imu = transform_from_rot_trans(imu2velo['R'], imu2velo['T'])
+    T_cam_velo = transform_from_rot_trans(velo2cam['R'], velo2cam['T'])
+
+    R_rect = np.eye(4)
+    R_rect[:3, :3] = cam2cam['R_rect_00'].reshape(3, 3)
+
+    P_rect = cam2cam['P_rect_0' + str(cam)].reshape(3, 4)
+    T_shift = np.eye(4)
+    T_shift[0, 3] = P_rect[0, 3] / P_rect[0, 0]
+
+    return T_shift.dot(R_rect).dot(T_cam_velo).dot(T_velo_imu)
+
+
 def sub2ind(matrixSize, rowSub, colSub):
     """Convert row, col matrix subscripts to linear indices
     """

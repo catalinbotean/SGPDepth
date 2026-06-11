@@ -261,6 +261,14 @@ class MonodepthOptions:
                               #    default="separate_resnet",
                                  default="posecnn",
                                  choices=["posecnn", "pose_flow", "separate_resnet", "shared"])
+        self.parser.add_argument("--use_gt_pose",
+                                 help="oracle experiment: use ground-truth relative poses from "
+                                      "KITTI oxts GPS/IMU instead of training a pose network",
+                                 action="store_true")
+        self.parser.add_argument("--grad_clip",
+                                 type=float,
+                                 help="max gradient norm for clipping (disabled if not set)",
+                                 default=None)
 
         # SYSTEM options
         self.parser.add_argument("--no_cuda",

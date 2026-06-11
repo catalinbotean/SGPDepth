@@ -46,9 +46,11 @@ class MonoDataset(data.Dataset):
                  frame_idxs,
                  num_scales,
                  is_train=False,
-                 img_ext='.png'):
+                 img_ext='.png',
+                 load_gt_pose=False):
         super(MonoDataset, self).__init__()
 
+        self.load_gt_pose = load_gt_pose
         self.data_path = data_path
         self.filenames = filenames
         self.height = height
@@ -198,6 +200,13 @@ class MonoDataset(data.Dataset):
 
             inputs["stereo_T"] = torch.from_numpy(stereo_T)
 
+        if self.load_gt_pose:
+            for i in self.frame_idxs:
+                if i == 0 or i == "s":
+                    continue
+                inputs[("gt_pose", i)] = torch.from_numpy(
+                    self.get_pose(folder, frame_index, i, side, do_flip))
+
         return inputs
 
     def get_color(self, folder, frame_index, side, do_flip):
@@ -207,4 +216,7 @@ class MonoDataset(data.Dataset):
         raise NotImplementedError
 
     def get_depth(self, folder, frame_index, side, do_flip):
+        raise NotImplementedError
+
+    def get_pose(self, folder, frame_index, offset, side, do_flip):
         raise NotImplementedError

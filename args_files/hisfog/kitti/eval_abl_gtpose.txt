@@ -1,0 +1,17 @@
+--data_path /PATH/TO/kitti_dataset/raw_data/
+--load_weights_folder exps/poseattn/abl_gtpose/models/weights_24
+--dataset kitti
+--eval_split eigen
+--backbone resnet_lite
+--height 192
+--width 640
+--num_layers 50
+--num_features 256
+--model_dim 32
+--patch_size 16
+--dim_out 64
+--query_nums 64
+--min_depth 0.001
+--max_depth 80.0
+--eval_mono
+--post_process

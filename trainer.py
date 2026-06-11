@@ -95,23 +95,25 @@ class Trainer:
         self.parameters_to_train += list(self.models["depth"].parameters())
 
 
-        self.models["pose"] = networks.PoseCNN(
-            self.num_input_frames if self.opt.pose_model_input == "all" else 2) # default=2
-        if self.opt.pretrained_pose :
-            print(f'loaded pose from {self.opt.pose_net_path}')
-            pose_net_path = os.path.join(self.opt.pose_net_path, 'pose.pth')
-            state_dict = OrderedDict([
-                (k.replace("module.", ""), v) for (k, v) in torch.load(pose_net_path).items()])
-            self.models["pose"].load_state_dict(state_dict)
-            print("-> Loading pretrained depth decoder from ", self.opt.pose_net_path)
-            depth_decoder_path = os.path.join(self.opt.pose_net_path, "depth.pth")
-            loaded_dict_enc = torch.load(depth_decoder_path, map_location=self.device)
-            filtered_dict_enc = {k: v for k, v in loaded_dict_enc.items() if k in self.models["depth"].state_dict()}
-            self.models["depth"].load_state_dict(filtered_dict_enc)
+        if not self.opt.use_gt_pose:
+            self.models["pose"] = networks.PoseCNN(
+                self.num_input_frames if self.opt.pose_model_input == "all" else 2) # default=2
+            if self.opt.pretrained_pose :
+                print(f'loaded pose from {self.opt.pose_net_path}')
+                pose_net_path = os.path.join(self.opt.pose_net_path, 'pose.pth')
+                state_dict = OrderedDict([
+                    (k.replace("module.", ""), v) for (k, v) in torch.load(pose_net_path).items()])
+                self.models["pose"].load_state_dict(state_dict)
+                print("-> Loading pretrained depth decoder from ", self.opt.pose_net_path)
+                depth_decoder_path = os.path.join(self.opt.pose_net_path, "depth.pth")
+                loaded_dict_enc = torch.load(depth_decoder_path, map_location=self.device)
+                filtered_dict_enc = {k: v for k, v in loaded_dict_enc.items() if k in self.models["depth"].state_dict()}
+                self.models["depth"].load_state_dict(filtered_dict_enc)
 
         self.models["depth"] = torch.nn.DataParallel(self.models["depth"])
         # self.models["pose"].to(self.device)
-        self.models["pose"] = self.models["pose"].cuda()
+        if not self.opt.use_gt_pose:
+            self.models["pose"] = self.models["pose"].cuda()
 
         #self.models["pose"] = torch.nn.DataParallel(self.models["pose"])
         if self.opt.diff_lr :
@@ -120,7 +122,8 @@ class Trainer:
             self.pose_params += list(self.models["encoder"].parameters())
         else :
             self.parameters_to_train += list(self.models["encoder"].parameters())
-        self.parameters_to_train += list(self.models["pose"].parameters())
+        if not self.opt.use_gt_pose:
+            self.parameters_to_train += list(self.models["pose"].parameters())
 
         # if self.opt.predictive_mask:
         #     assert self.opt.disable_automasking, \
@@ -165,15 +168,16 @@ class Trainer:
         num_train_samples = len(train_filenames)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
+        dataset_kwargs = {"load_gt_pose": True} if self.opt.use_gt_pose else {}
         train_dataset = self.dataset(
             self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 1, is_train=True, img_ext=img_ext) # num_scales = 1
+            self.opt.frame_ids, 1, is_train=True, img_ext=img_ext, **dataset_kwargs) # num_scales = 1
         self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 1, is_train=False, img_ext=img_ext) # num_scales = 1
+            self.opt.frame_ids, 1, is_train=False, img_ext=img_ext, **dataset_kwargs) # num_scales = 1
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, True,
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
@@ -250,6 +254,8 @@ class Trainer:
 
             self.model_optimizer.zero_grad()
             losses["loss"].backward()
+            if self.opt.grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(self.parameters_to_train, self.opt.grad_clip)
             self.model_optimizer.step()
 
             duration = time.time() - before_op_time
@@ -311,6 +317,14 @@ class Trainer:
         """Predict poses between input frames for monocular sequences.
         """
         outputs = {}
+
+        if self.opt.use_gt_pose:
+            # oracle experiment: ground-truth relative poses from the dataset
+            # replace the pose network entirely
+            for f_i in self.opt.frame_ids[1:]:
+                if f_i != "s":
+                    outputs[("cam_T_cam", 0, f_i)] = inputs[("gt_pose", f_i)]
+            return outputs
 
         if self.num_pose_frames == 2:
             # In this setting, we compute the pose to each source frame via a
@@ -418,7 +432,8 @@ class Trainer:
                     T = outputs[("cam_T_cam", 0, frame_id)]
 
                 # from the authors of https://arxiv.org/abs/1712.00175
-                if self.opt.pose_model_type == "posecnn" and not self.opt.use_stereo:
+                if self.opt.pose_model_type == "posecnn" and not self.opt.use_stereo \
+                        and not self.opt.use_gt_pose:
 
                     axisangle = outputs[("axisangle", 0, frame_id)]
                     translation = outputs[("translation", 0, frame_id)]

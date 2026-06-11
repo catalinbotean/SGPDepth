@@ -11,7 +11,8 @@ import skimage.transform
 import numpy as np
 import PIL.Image as pil
 
-from kitti_utils import generate_depth_map
+from kitti_utils import (generate_depth_map, load_imu2cam_rect,
+                         pose_from_oxts_packet, read_oxts_packet)
 from .mono_dataset import MonoDataset
 
 
@@ -60,12 +61,45 @@ class KITTIRAWDataset(KITTIDataset):
     """
     def __init__(self, *args, **kwargs):
         super(KITTIRAWDataset, self).__init__(*args, **kwargs)
+        self._imu2cam_cache = {}
 
     def get_image_path(self, folder, frame_index, side):
         f_str = "{:010d}{}".format(frame_index, self.img_ext)
         image_path = os.path.join(
             self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
         return image_path
+
+    def _imu2cam(self, date, cam):
+        key = (date, cam)
+        if key not in self._imu2cam_cache:
+            calib_dir = os.path.join(self.data_path, date)
+            self._imu2cam_cache[key] = load_imu2cam_rect(calib_dir, cam)
+        return self._imu2cam_cache[key]
+
+    def get_pose(self, folder, frame_index, offset, side, do_flip):
+        """GT relative pose mapping target-camera points (frame_index) into the
+        source camera frame (frame_index + offset), from the raw oxts GPS/IMU.
+        """
+        date = folder.split("/")[0]
+        T_cam_imu = self._imu2cam(date, self.side_map[side])
+
+        oxts_path = os.path.join(self.data_path, folder, "oxts/data/{:010d}.txt")
+        packet_t = read_oxts_packet(oxts_path.format(frame_index))
+        packet_s = read_oxts_packet(oxts_path.format(frame_index + offset))
+
+        # one shared mercator scale so the two global poses are consistent
+        scale = np.cos(packet_t[0] * np.pi / 180.)
+        T_w_imu_t = pose_from_oxts_packet(packet_t, scale)
+        T_w_imu_s = pose_from_oxts_packet(packet_s, scale)
+
+        T = T_cam_imu.dot(np.linalg.inv(T_w_imu_s)).dot(T_w_imu_t).dot(
+            np.linalg.inv(T_cam_imu))
+
+        if do_flip:
+            F = np.diag([-1., 1., 1., 1.])
+            T = F.dot(T).dot(F)
+
+        return T.astype(np.float32)
 
     def get_depth(self, folder, frame_index, side, do_flip):
         calib_path = os.path.join(self.data_path, folder.split("/")[0])
